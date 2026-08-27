@@ -1,0 +1,32 @@
+name: Daily StockAI Analysis Pipeline
+
+on:
+  schedule:
+    # 11:00 AM UTC = 4:30 PM IST (Monday through Friday)
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch: # Allows manual one-click trigger from GitHub Actions tab
+
+jobs:
+  run-daily-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Execute Daily Analysis Pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATA_MODE: free
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: node backend/scripts/runDailyAnalysis.js
