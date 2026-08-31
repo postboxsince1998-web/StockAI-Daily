@@ -3,6 +3,7 @@ import { fetchStockData, fetchNewsForCompany, getTodayDateString } from '../serv
 import { runChangeDetection } from '../services/changeDetection.js';
 import { calculateStockHealth } from '../services/stockHealth.js';
 import { generateCompanyAnalysis, generateMarketReport } from '../services/aiService.js';
+import { seedDatabase } from '../database/seed.js';
 
 export async function runDailyAnalysisPipeline(forceRun = false) {
   const todayStr = getTodayDateString();
@@ -29,8 +30,14 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
   let eventsDetectedCount = 0;
   let aiSummariesCount = 0;
 
-  // 2. Fetch Companies Universe
-  const companies = (await db.prepare(`SELECT * FROM companies`).all()) || [];
+  // 2. Fetch Companies Universe (Auto-seed if database empty)
+  let companies = (await db.prepare(`SELECT * FROM companies`).all()) || [];
+  if (companies.length === 0) {
+    console.log('🌱 Companies table empty. Auto-seeding tracked company universe...');
+    await seedDatabase();
+    companies = (await db.prepare(`SELECT * FROM companies`).all()) || [];
+  }
+
   const indices = companies.filter(c => c.is_index === 1);
   const stocks = companies.filter(c => c.is_index === 0);
 
@@ -95,7 +102,6 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
 
     // Detect Changes & Events
     const detectedEvents = await runChangeDetection(comp.symbol, priceRecord, prevPriceRecord, fundamentals, newsArticles);
-
     eventsDetectedCount += detectedEvents.length;
 
     // Calculate Stock Health Score
