@@ -18,16 +18,11 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
     return { status: 'SKIPPED_WEEKEND', message: 'Weekend trading holiday' };
   }
 
-  const holidayRow = db.prepare(`SELECT description FROM market_holidays WHERE date = ?`).get(todayStr);
+  const holidayRow = await db.prepare(`SELECT description FROM market_holidays WHERE date = ?`).get(todayStr);
   if (!forceRun && holidayRow) {
     console.log(`🎉 Today (${todayStr}) is an Indian Market Holiday: ${holidayRow.description}. Analysis skipped.`);
     return { status: 'SKIPPED_HOLIDAY', message: holidayRow.description };
   }
-
-  const logStmt = db.prepare(`
-    INSERT INTO update_logs (status, companies_analysed, news_collected, events_detected, ai_summaries_generated, log_message)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
 
   let companiesAnalysedCount = 0;
   let newsCollectedCount = 0;
@@ -35,7 +30,7 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
   let aiSummariesCount = 0;
 
   // 2. Fetch Companies Universe
-  const companies = db.prepare(`SELECT * FROM companies`).all();
+  const companies = (await db.prepare(`SELECT * FROM companies`).all()) || [];
   const indices = companies.filter(c => c.is_index === 1);
   const stocks = companies.filter(c => c.is_index === 0);
 
@@ -47,7 +42,7 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
     console.log(`  📈 Fetching Index: ${idx.name} (${idx.symbol})...`);
     const pRecord = await fetchStockData(idx.symbol);
     if (pRecord) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO market_indices (symbol, name, date, close, previous_close, change, change_percent)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(symbol, date) DO UPDATE SET
@@ -84,12 +79,12 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
     sectorPerformanceMap[comp.sector].stocks.push(comp.symbol);
 
     // Get previous price record for volume/price change comparisons
-    const prevPriceRecord = db.prepare(`
+    const prevPriceRecord = await db.prepare(`
       SELECT * FROM daily_prices WHERE symbol = ? AND date < ? ORDER BY date DESC LIMIT 1
     `).get(comp.symbol, todayStr);
 
     // Fetch Fundamentals
-    const fundamentals = db.prepare(`
+    const fundamentals = await db.prepare(`
       SELECT * FROM fundamentals WHERE symbol = ? ORDER BY date DESC LIMIT 1
     `).get(comp.symbol);
 
@@ -99,7 +94,8 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
     allNewsList.push(...newsArticles);
 
     // Detect Changes & Events
-    const detectedEvents = runChangeDetection(comp.symbol, priceRecord, prevPriceRecord, fundamentals, newsArticles);
+    const detectedEvents = await runChangeDetection(comp.symbol, priceRecord, prevPriceRecord, fundamentals, newsArticles);
+
     eventsDetectedCount += detectedEvents.length;
 
     // Calculate Stock Health Score
@@ -110,7 +106,7 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
     aiSummariesCount++;
 
     // Save Daily Company Analysis
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO daily_company_analysis (symbol, date, summary, important_changes, risk_summary, fundamental_summary, news_summary, health_score, health_breakdown)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(symbol, date) DO UPDATE SET
@@ -151,7 +147,7 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
   console.log(`\n📰 Generating Aggregated Daily Market Report...`);
   const marketReportData = await generateMarketReport(todayStr, indexResults, topGainers, topLosers, sectorList, allNewsList);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO market_reports (date, title, summary, market_overview, top_gainers, top_losers, strongest_sectors, weakest_sectors, important_news, fundamental_changes, stocks_to_watch, one_minute_summary)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(date) DO UPDATE SET
@@ -184,7 +180,10 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
 
   // 8. Record Execution Log
   const logMsg = `Completed Daily Analysis Pipeline for ${todayStr}. Analysed ${companiesAnalysedCount} companies, fetched ${newsCollectedCount} news articles, detected ${eventsDetectedCount} events, generated ${aiSummariesCount} AI summaries.`;
-  logStmt.run('Completed', companiesAnalysedCount, newsCollectedCount, eventsDetectedCount, aiSummariesCount, logMsg);
+  await db.prepare(`
+    INSERT INTO update_logs (status, companies_analysed, news_collected, events_detected, ai_summaries_generated, log_message)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run('Completed', companiesAnalysedCount, newsCollectedCount, eventsDetectedCount, aiSummariesCount, logMsg);
 
   console.log(`\n============================================================`);
   console.log(`✅ Daily StockAI Analysis Pipeline Completed Successfully!`);
@@ -208,4 +207,3 @@ if (process.argv[1] && process.argv[1].includes('runDailyAnalysis')) {
     process.exit(1);
   });
 }
-

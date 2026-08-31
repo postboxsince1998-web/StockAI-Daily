@@ -85,7 +85,7 @@ export async function fetchStockData(symbol) {
     };
 
     // Save into daily_prices
-    const stmtPrice = db.prepare(`
+    await db.prepare(`
       INSERT INTO daily_prices (symbol, date, open, high, low, close, previous_close, change, change_percent, volume, fifty_two_week_high, fifty_two_week_low, source)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(symbol, date) DO UPDATE SET
@@ -101,9 +101,7 @@ export async function fetchStockData(symbol) {
         fifty_two_week_low=excluded.fifty_two_week_low,
         source=excluded.source,
         retrieved_at=CURRENT_TIMESTAMP;
-    `);
-
-    stmtPrice.run(
+    `).run(
       priceRecord.symbol,
       priceRecord.date,
       priceRecord.open,
@@ -131,20 +129,16 @@ export async function fetchStockData(symbol) {
           const closePrices1y = result1y.indicators?.quote?.[0]?.close || [];
           const volumes1y = result1y.indicators?.quote?.[0]?.volume || [];
 
-          const stmtHist = db.prepare(`
-            INSERT INTO historical_prices (symbol, date, close, volume)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(symbol, date) DO UPDATE SET close=excluded.close, volume=excluded.volume;
-          `);
-
-          db.transaction(() => {
-            for (let i = 0; i < timestamps1y.length; i++) {
-              if (closePrices1y[i] !== null && closePrices1y[i] !== undefined) {
-                const tDate = new Date(timestamps1y[i] * 1000).toISOString().split('T')[0];
-                stmtHist.run(symbol, tDate, closePrices1y[i], volumes1y[i] || 0);
-              }
+          for (let i = 0; i < timestamps1y.length; i++) {
+            if (closePrices1y[i] !== null && closePrices1y[i] !== undefined) {
+              const tDate = new Date(timestamps1y[i] * 1000).toISOString().split('T')[0];
+              await db.prepare(`
+                INSERT INTO historical_prices (symbol, date, close, volume)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(symbol, date) DO UPDATE SET close=excluded.close, volume=excluded.volume;
+              `).run(symbol, tDate, closePrices1y[i], volumes1y[i] || 0);
             }
-          })();
+          }
         }
       }
     } catch (e1y) {
@@ -181,7 +175,7 @@ async function fetchRealFundamentalMetrics(symbol, currentClose, today) {
 
     // Update company sector if found
     if (sector) {
-      db.prepare(`UPDATE companies SET sector = ?, industry = ? WHERE symbol = ?`).run(sector, industry, symbol);
+      await db.prepare(`UPDATE companies SET sector = ?, industry = ? WHERE symbol = ?`).run(sector, industry, symbol);
     }
 
     // Fetch quoteSummary for real financial ratios if available from public API
@@ -220,7 +214,7 @@ async function fetchRealFundamentalMetrics(symbol, currentClose, today) {
     }
 
     // STRICT TRANSPARENCY: If a metric is missing, store NULL. Do NOT fake numbers.
-    const stmtFund = db.prepare(`
+    await db.prepare(`
       INSERT INTO fundamentals (symbol, date, market_cap, pe_ratio, eps, revenue, revenue_growth, net_profit, profit_growth, debt, debt_to_equity, roe, roce, dividend_yield, book_value, source)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(symbol, date) DO UPDATE SET
@@ -234,9 +228,7 @@ async function fetchRealFundamentalMetrics(symbol, currentClose, today) {
         dividend_yield=excluded.dividend_yield,
         source=excluded.source,
         retrieved_at=CURRENT_TIMESTAMP;
-    `);
-
-    stmtFund.run(
+    `).run(
       symbol,
       today,
       market_cap,
@@ -266,12 +258,6 @@ export async function fetchNewsForCompany(company) {
 
     const feed = await parser.parseURL(rssUrl);
     if (!feed || !feed.items || feed.items.length === 0) return [];
-
-    const stmtNews = db.prepare(`
-      INSERT INTO news_articles (symbol, title, summary, source, url, category, sentiment, published_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(symbol, title, published_at) DO NOTHING;
-    `);
 
     const savedNews = [];
     const recentItems = feed.items.slice(0, 5);
@@ -306,7 +292,12 @@ export async function fetchNewsForCompany(company) {
         sentiment = 'NEGATIVE';
       }
 
-      stmtNews.run(company.symbol, title, summary, source, link, category, sentiment, pubDate);
+      await db.prepare(`
+        INSERT INTO news_articles (symbol, title, summary, source, url, category, sentiment, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol, title, published_at) DO NOTHING;
+      `).run(company.symbol, title, summary, source, link, category, sentiment, pubDate);
+
       savedNews.push({ title, summary, source, url: link, category, sentiment, published_at: pubDate });
     }
 

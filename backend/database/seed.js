@@ -1,6 +1,6 @@
 import db from './db.js';
 
-export function seedDatabase() {
+export async function seedDatabase() {
   console.log('🌱 Seeding StockAI Daily database...');
 
   const insertCompany = db.prepare(`
@@ -42,7 +42,7 @@ export function seedDatabase() {
   ];
 
   for (const c of companies) {
-    insertCompany.run(c.symbol, c.name, c.exchange, c.sector, c.industry, c.is_index, c.description);
+    await insertCompany.run(c.symbol, c.name, c.exchange, c.sector, c.industry, c.is_index, c.description);
   }
 
   // Seed Data Sources
@@ -52,10 +52,10 @@ export function seedDatabase() {
     ON CONFLICT(name) DO UPDATE SET status=excluded.status;
   `);
 
-  insertSource.run('Yahoo Finance (EOD Quotes & Historical)', 'PUBLIC_API', 'ACTIVE');
-  insertSource.run('Google News RSS Feeds', 'RSS_FEED', 'ACTIVE');
-  insertSource.run('NSE Public Filing Feeds', 'PUBLIC_FEED', 'ACTIVE');
-  insertSource.run('StockAI Financial Teacher Engine', 'RULE_BASED_AI', 'ACTIVE');
+  await insertSource.run('Yahoo Finance (EOD Quotes & Historical)', 'PUBLIC_API', 'ACTIVE');
+  await insertSource.run('Google News RSS Feeds', 'RSS_FEED', 'ACTIVE');
+  await insertSource.run('NSE Public Filing Feeds', 'PUBLIC_FEED', 'ACTIVE');
+  await insertSource.run('StockAI Financial Teacher Engine', 'RULE_BASED_AI', 'ACTIVE');
 
   // Seed Indian Holidays 2026
   const insertHoliday = db.prepare(`
@@ -82,7 +82,7 @@ export function seedDatabase() {
   ];
 
   for (const h of holidays) {
-    insertHoliday.run(h.date, h.description);
+    await insertHoliday.run(h.date, h.description);
   }
 
   console.log('✅ Database seeded successfully!');
@@ -90,6 +90,8 @@ export function seedDatabase() {
 
 // Run if called directly
 if (process.argv[1] && process.argv[1].includes('seed')) {
-  seedDatabase();
+  seedDatabase().then(() => process.exit(0)).catch(e => {
+    console.error(e);
+    process.exit(1);
+  });
 }
-

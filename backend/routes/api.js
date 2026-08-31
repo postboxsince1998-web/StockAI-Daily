@@ -6,7 +6,7 @@ import { getTodayDateString } from '../services/dataCollector.js';
 const router = express.Router();
 
 // GET /api/companies - list all tracked companies with latest price & sector
-router.get('/companies', (req, res) => {
+router.get('/companies', async (req, res) => {
   try {
     const { category, search } = req.query;
     let query = `
@@ -25,7 +25,7 @@ router.get('/companies', (req, res) => {
     }
 
     query += ` ORDER BY c.name ASC`;
-    const rows = db.prepare(query).all(...params);
+    const rows = (await db.prepare(query).all(...params)) || [];
 
     // Apply category filter in JS if needed
     let filtered = rows;
@@ -46,30 +46,30 @@ router.get('/companies', (req, res) => {
 });
 
 // GET /api/companies/:symbol - detailed stock view
-router.get('/companies/:symbol', (req, res) => {
+router.get('/companies/:symbol', async (req, res) => {
   try {
     const symbolParam = req.params.symbol.toUpperCase();
     const symbol = symbolParam.includes('.') || symbolParam.startsWith('^') ? symbolParam : `${symbolParam}.NS`;
 
-    const company = db.prepare(`SELECT * FROM companies WHERE symbol = ?`).get(symbol);
+    const company = await db.prepare(`SELECT * FROM companies WHERE symbol = ?`).get(symbol);
     if (!company) {
       return res.status(404).json({ success: false, error: 'Company not found in watch universe.' });
     }
 
     // Latest price
-    const latestPrice = db.prepare(`
+    const latestPrice = await db.prepare(`
       SELECT * FROM daily_prices WHERE symbol = ? ORDER BY date DESC LIMIT 1
     `).get(symbol);
 
     // Historical prices (last 30 trading days for chart)
-    const history = db.prepare(`
+    const history = (await db.prepare(`
       SELECT date, close, volume FROM historical_prices WHERE symbol = ? ORDER BY date ASC LIMIT 60
-    `).get(symbol) || [];
+    `).all(symbol)) || [];
 
     // Calculate multi-period changes (1D, 5D, 1M, 3M, 6M, 1Y)
-    const allHistory = db.prepare(`
+    const allHistory = (await db.prepare(`
       SELECT date, close FROM historical_prices WHERE symbol = ? ORDER BY date DESC
-    `).all(symbol);
+    `).all(symbol)) || [];
 
     const currentClose = latestPrice ? latestPrice.close : (allHistory[0]?.close || 0);
 
@@ -94,27 +94,27 @@ router.get('/companies/:symbol', (req, res) => {
     };
 
     // Fundamentals
-    const fundamentals = db.prepare(`
+    const fundamentals = await db.prepare(`
       SELECT * FROM fundamentals WHERE symbol = ? ORDER BY date DESC LIMIT 1
     `).get(symbol);
 
     // Quarterly Results
-    const quarterlyResults = db.prepare(`
+    const quarterlyResults = (await db.prepare(`
       SELECT * FROM quarterly_results WHERE symbol = ? ORDER BY report_date DESC LIMIT 4
-    `).all(symbol);
+    `).all(symbol)) || [];
 
     // News
-    const news = db.prepare(`
+    const news = (await db.prepare(`
       SELECT * FROM news_articles WHERE symbol = ? ORDER BY published_at DESC LIMIT 5
-    `).all(symbol);
+    `).all(symbol)) || [];
 
     // Events
-    const events = db.prepare(`
+    const events = (await db.prepare(`
       SELECT * FROM stock_events WHERE symbol = ? ORDER BY detected_at DESC LIMIT 5
-    `).all(symbol);
+    `).all(symbol)) || [];
 
     // AI Analysis & Health Score
-    const aiAnalysis = db.prepare(`
+    const aiAnalysis = await db.prepare(`
       SELECT * FROM daily_company_analysis WHERE symbol = ? ORDER BY date DESC LIMIT 1
     `).get(symbol);
 
@@ -153,40 +153,40 @@ router.get('/companies/:symbol', (req, res) => {
 });
 
 // GET /api/market/today - Full Daily Market Report
-router.get('/market/today', (req, res) => {
+router.get('/market/today', async (req, res) => {
   try {
     const todayStr = getTodayDateString();
 
     // Get latest report from db (or today date)
-    let report = db.prepare(`SELECT * FROM market_reports ORDER BY date DESC LIMIT 1`).get();
+    let report = await db.prepare(`SELECT * FROM market_reports ORDER BY date DESC LIMIT 1`).get();
 
     // Get latest market indices
-    const indices = db.prepare(`SELECT * FROM market_indices WHERE date = (SELECT MAX(date) FROM market_indices)`).all();
+    const indices = (await db.prepare(`SELECT * FROM market_indices WHERE date = (SELECT MAX(date) FROM market_indices)`).all()) || [];
 
     // Get gainers / losers
-    const topGainers = db.prepare(`
+    const topGainers = (await db.prepare(`
       SELECT c.symbol, c.name, c.sector, dp.close, dp.change_percent, dp.volume
       FROM daily_prices dp
       JOIN companies c ON dp.symbol = c.symbol
       WHERE dp.date = (SELECT MAX(date) FROM daily_prices) AND c.is_index = 0
       ORDER BY dp.change_percent DESC LIMIT 5
-    `).all();
+    `).all()) || [];
 
-    const topLosers = db.prepare(`
+    const topLosers = (await db.prepare(`
       SELECT c.symbol, c.name, c.sector, dp.close, dp.change_percent, dp.volume
       FROM daily_prices dp
       JOIN companies c ON dp.symbol = c.symbol
       WHERE dp.date = (SELECT MAX(date) FROM daily_prices) AND c.is_index = 0
       ORDER BY dp.change_percent ASC LIMIT 5
-    `).all();
+    `).all()) || [];
 
     // Recent top news across universe
-    const recentNews = db.prepare(`
+    const recentNews = (await db.prepare(`
       SELECT n.*, c.name as company_name
       FROM news_articles n
       JOIN companies c ON n.symbol = c.symbol
       ORDER BY n.published_at DESC LIMIT 6
-    `).all();
+    `).all()) || [];
 
     res.json({
       success: true,
@@ -209,11 +209,11 @@ router.get('/market/today', (req, res) => {
 });
 
 // GET /api/market/indices - Index Benchmark summaries
-router.get('/market/indices', (req, res) => {
+router.get('/market/indices', async (req, res) => {
   try {
-    const indices = db.prepare(`
+    const indices = (await db.prepare(`
       SELECT * FROM market_indices WHERE date = (SELECT MAX(date) FROM market_indices)
-    `).all();
+    `).all()) || [];
     res.json({ success: true, indices });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -221,9 +221,9 @@ router.get('/market/indices', (req, res) => {
 });
 
 // GET /api/market/logs - Execution logs
-router.get('/market/logs', (req, res) => {
+router.get('/market/logs', async (req, res) => {
   try {
-    const logs = db.prepare(`SELECT * FROM update_logs ORDER BY timestamp DESC LIMIT 10`).all();
+    const logs = (await db.prepare(`SELECT * FROM update_logs ORDER BY timestamp DESC LIMIT 10`).all()) || [];
     res.json({ success: true, logs });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -242,7 +242,7 @@ router.post('/daily-analysis/trigger', async (req, res) => {
 });
 
 // POST /api/ai/ask - AI Stock Teacher Q&A
-router.post('/ai/ask', (req, res) => {
+router.post('/ai/ask', async (req, res) => {
   try {
     const { question } = req.body;
     if (!question) {
@@ -253,8 +253,8 @@ router.post('/ai/ask', (req, res) => {
     let reply = '';
 
     // Fetch latest market metrics to answer accurately
-    const report = db.prepare(`SELECT * FROM market_reports ORDER BY date DESC LIMIT 1`).get();
-    const indices = db.prepare(`SELECT * FROM market_indices WHERE date = (SELECT MAX(date) FROM market_indices)`).all();
+    const report = await db.prepare(`SELECT * FROM market_reports ORDER BY date DESC LIMIT 1`).get();
+    const indices = (await db.prepare(`SELECT * FROM market_indices WHERE date = (SELECT MAX(date) FROM market_indices)`).all()) || [];
     const nifty = indices.find(i => i.symbol === '^NSEI');
 
     if (qLower.includes('today') || qLower.includes('market') || qLower.includes('happen')) {
@@ -263,10 +263,10 @@ router.post('/ai/ask', (req, res) => {
         `• ${report?.summary || 'The market experienced normal trading activity across major sector leaders.'}\n\n` +
         `Remember: Daily market fluctuations reflect supply and demand from millions of investors and institutions worldwide.`;
     } else if (qLower.includes('tcs')) {
-      const tcs = db.prepare(`SELECT * FROM daily_prices WHERE symbol = 'TCS.NS' ORDER BY date DESC LIMIT 1`).get();
+      const tcs = await db.prepare(`SELECT * FROM daily_prices WHERE symbol = 'TCS.NS' ORDER BY date DESC LIMIT 1`).get();
       reply = `TCS (Tata Consultancy Services) closed today at ₹${tcs?.close?.toFixed(2) || '3,650'} (${tcs?.change_percent >= 0 ? '+' : ''}${tcs?.change_percent?.toFixed(2)}%). TCS is India's largest IT exporter with strong profit margins and low long-term debt.`;
     } else if (qLower.includes('reliance')) {
-      const rel = db.prepare(`SELECT * FROM daily_prices WHERE symbol = 'RELIANCE.NS' ORDER BY date DESC LIMIT 1`).get();
+      const rel = await db.prepare(`SELECT * FROM daily_prices WHERE symbol = 'RELIANCE.NS' ORDER BY date DESC LIMIT 1`).get();
       reply = `Reliance Industries closed today at ₹${rel?.close?.toFixed(2) || '2,980'} (${rel?.change_percent >= 0 ? '+' : ''}${rel?.change_percent?.toFixed(2)}%). Reliance operates across energy, retail, telecom (Jio), and digital services.`;
     } else if (qLower.includes('bank') || qLower.includes('banking')) {
       reply = `Banking sector stocks (including HDFC Bank, ICICI Bank, SBI) represent the core financial engine of India's economy. Bank performance is heavily driven by interest rate expectations, net interest margins (NIM), and asset quality (low non-performing assets).`;

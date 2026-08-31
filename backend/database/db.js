@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import pkg from 'pg';
 const { Pool } = pkg;
-import { SCHEMA_SQL } from './schema.js';
+import { SCHEMA_SQL, PG_SCHEMA_SQL } from './schema.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,58 +14,80 @@ const databaseUrl = process.env.DATABASE_URL;
 let dbInstance;
 
 if (databaseUrl && (databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://'))) {
-  console.log('📡 Connecting to Cloud PostgreSQL Database...');
+  console.log('📡 Connecting to Supabase Cloud PostgreSQL Database...');
+
   const pool = new Pool({
     connectionString: databaseUrl,
     ssl: { rejectUnauthorized: false }
   });
 
-  // Universal wrapper exposing synchronous-like prepare API for Express/Scripts compatibility
   dbInstance = {
     isPostgres: true,
     pool,
+    async initDb() {
+      try {
+        await pool.query(PG_SCHEMA_SQL);
+        console.log('✅ Supabase PostgreSQL Schema verified successfully.');
+      } catch (err) {
+        console.warn('⚠️ Supabase Schema Init Notice:', err.message);
+      }
+    },
     prepare(sql) {
-      // Convert SQLite ? placeholders to PostgreSQL $1, $2, etc.
-      let paramCount = 0;
-      const pgSql = sql.replace(/\?/g, () => `$${++paramCount}`);
+      let paramIndex = 0;
+      const pgSql = sql.replace(/\?/g, () => `$${++paramIndex}`);
 
       return {
-        get(...params) {
+        async get(...params) {
           try {
-            // Synchronous wrapper using Async Deopt or query helper
-            const res = pool.query(pgSql, params.flat());
-            return res.rows ? res.rows[0] : null;
-          } catch (e) {
-            console.error('[PgAdapter Error]', e.message);
+            const flatParams = params.flat();
+            const res = await pool.query(pgSql, flatParams);
+            return res.rows[0] || null;
+          } catch (err) {
+            console.error('[PostgreSQL Get Error]', err.message);
             return null;
           }
         },
-        all(...params) {
+        async all(...params) {
           try {
-            const res = pool.query(pgSql, params.flat());
+            const flatParams = params.flat();
+            const res = await pool.query(pgSql, flatParams);
             return res.rows || [];
-          } catch (e) {
-            console.error('[PgAdapter Error]', e.message);
+          } catch (err) {
+            console.error('[PostgreSQL All Error]', err.message);
             return [];
           }
         },
-        run(...params) {
+        async run(...params) {
           try {
-            const res = pool.query(pgSql, params.flat());
+            const flatParams = params.flat();
+            const res = await pool.query(pgSql, flatParams);
             return { changes: res.rowCount };
-          } catch (e) {
-            console.error('[PgAdapter Error]', e.message);
+          } catch (err) {
+            console.error('[PostgreSQL Run Error]', err.message);
             return { changes: 0 };
           }
         }
       };
     },
     transaction(fn) {
-      return (...args) => fn(...args);
+      return async (...args) => {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const result = await fn(...args);
+          await client.query('COMMIT');
+          return result;
+        } catch (e) {
+          await client.query('ROLLBACK');
+          throw e;
+        } finally {
+          client.release();
+        }
+      };
     },
     pragma() {},
     exec(sql) {
-      pool.query(sql).catch(e => console.error('[PgAdapter Exec Error]', e.message));
+      return pool.query(sql);
     }
   };
 } else {
@@ -80,7 +102,36 @@ if (databaseUrl && (databaseUrl.startsWith('postgres://') || databaseUrl.startsW
   sqliteDb.pragma('journal_mode = WAL');
   sqliteDb.exec(SCHEMA_SQL);
 
-  dbInstance = sqliteDb;
+  dbInstance = {
+    isPostgres: false,
+    sqliteDb,
+    async initDb() {
+      sqliteDb.exec(SCHEMA_SQL);
+    },
+    prepare(sql) {
+      const stmt = sqliteDb.prepare(sql);
+      return {
+        async get(...params) {
+          return stmt.get(...params.flat());
+        },
+        async all(...params) {
+          return stmt.all(...params.flat());
+        },
+        async run(...params) {
+          return stmt.run(...params.flat());
+        }
+      };
+    },
+    transaction(fn) {
+      return sqliteDb.transaction(fn);
+    },
+    pragma(p) {
+      return sqliteDb.pragma(p);
+    },
+    exec(sql) {
+      return sqliteDb.exec(sql);
+    }
+  };
 }
 
 export default dbInstance;
