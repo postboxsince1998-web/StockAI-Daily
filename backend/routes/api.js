@@ -1,14 +1,110 @@
 import express from 'express';
 import db from '../database/db.js';
 import { runDailyAnalysisPipeline } from '../scripts/runDailyAnalysis.js';
-import { getTodayDateString } from '../services/dataCollector.js';
+import { fetchStockData, fetchNewsForCompany, getTodayDateString } from '../services/dataCollector.js';
+import { runChangeDetection } from '../services/changeDetection.js';
+import { calculateStockHealth } from '../services/stockHealth.js';
+import { generateCompanyAnalysis } from '../services/aiService.js';
 
 const router = express.Router();
+
+// Helper for on-demand stock discovery and analysis
+async function discoverAndRegisterStock(symbol) {
+  try {
+    const formattedSymbol = symbol.includes('.') || symbol.startsWith('^') ? symbol : `${symbol}.NS`;
+    let company = await db.prepare(`SELECT * FROM companies WHERE symbol = ?`).get(formattedSymbol);
+
+    if (!company) {
+      console.log(`🔍 On-Demand Stock Discovery: Registering ${formattedSymbol}...`);
+      let name = formattedSymbol.replace('.NS', '').replace('.BO', '');
+      let sector = 'General';
+      let industry = 'Market Listed';
+
+      try {
+        const searchRes = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(formattedSymbol)}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const quoteInfo = searchData?.quotes?.[0];
+          if (quoteInfo) {
+            name = quoteInfo.longname || quoteInfo.shortname || name;
+            sector = quoteInfo.sector || sector;
+            industry = quoteInfo.industry || industry;
+          }
+        }
+      } catch (eSearch) {
+        console.warn(`[OnDemand] Search metadata fetch notice:`, eSearch.message);
+      }
+
+      await db.prepare(`
+        INSERT INTO companies (symbol, name, exchange, sector, industry, is_index, description)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
+        ON CONFLICT(symbol) DO UPDATE SET name=excluded.name, sector=excluded.sector;
+      `).run(formattedSymbol, name, formattedSymbol.endsWith('.BO') ? 'BSE' : 'NSE', sector, industry, `${name} listed on Indian Stock Exchange.`);
+
+      company = await db.prepare(`SELECT * FROM companies WHERE symbol = ?`).get(formattedSymbol);
+    }
+
+    if (company) {
+      // Check if price exists for today
+      let priceRecord = await db.prepare(`SELECT * FROM daily_prices WHERE symbol = ? ORDER BY date DESC LIMIT 1`).get(formattedSymbol);
+      if (!priceRecord) {
+        priceRecord = await fetchStockData(formattedSymbol);
+      }
+
+      // Check if analysis exists
+      let aiAnalysis = await db.prepare(`SELECT * FROM daily_company_analysis WHERE symbol = ? ORDER BY date DESC LIMIT 1`).get(formattedSymbol);
+      if (!aiAnalysis && priceRecord) {
+        const todayStr = getTodayDateString();
+        const fundamentals = await db.prepare(`SELECT * FROM fundamentals WHERE symbol = ? ORDER BY date DESC LIMIT 1`).get(formattedSymbol);
+        const newsArticles = await fetchNewsForCompany(company);
+        const detectedEvents = await runChangeDetection(formattedSymbol, priceRecord, null, fundamentals, newsArticles);
+        const healthResult = calculateStockHealth(priceRecord, fundamentals);
+        const generatedAi = await generateCompanyAnalysis(company, priceRecord, fundamentals, detectedEvents, newsArticles);
+
+        await db.prepare(`
+          INSERT INTO daily_company_analysis (symbol, date, summary, important_changes, risk_summary, fundamental_summary, news_summary, health_score, health_breakdown)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(symbol, date) DO UPDATE SET summary=excluded.summary, health_score=excluded.health_score;
+        `).run(
+          formattedSymbol,
+          todayStr,
+          generatedAi.summary,
+          generatedAi.important_changes,
+          generatedAi.risk_summary,
+          generatedAi.fundamental_summary,
+          generatedAi.news_summary,
+          healthResult.score,
+          JSON.stringify(healthResult.breakdown)
+        );
+      }
+    }
+
+    return company;
+  } catch (err) {
+    console.error(`[OnDemand Error] Discovery failed for ${symbol}:`, err.message);
+    return null;
+  }
+}
 
 // GET /api/companies - list all tracked companies with latest price & sector
 router.get('/companies', async (req, res) => {
   try {
     const { category, search } = req.query;
+
+    if (search && search.trim().length >= 2) {
+      const searchTerm = search.trim().toUpperCase();
+      const directMatch = await db.prepare(`
+        SELECT * FROM companies WHERE symbol = ? OR symbol = ?
+      `).get(searchTerm, `${searchTerm}.NS`);
+
+      if (!directMatch && !searchTerm.includes(' ')) {
+        // Attempt on-demand dynamic lookup for un-tracked stock symbol
+        await discoverAndRegisterStock(searchTerm);
+      }
+    }
+
     let query = `
       SELECT c.*, dp.close, dp.change, dp.change_percent, dp.volume, dp.date as price_date,
              dca.health_score
@@ -30,7 +126,7 @@ router.get('/companies', async (req, res) => {
     // Apply category filter in JS if needed
     let filtered = rows;
     if (category === 'Large Companies') {
-      filtered = rows.slice(0, 10);
+      filtered = rows.slice(0, 15);
     } else if (category === 'High Growth') {
       filtered = rows.filter(r => (r.change_percent || 0) > 1.0);
     } else if (category === 'Strong Fundamentals') {
@@ -45,23 +141,33 @@ router.get('/companies', async (req, res) => {
   }
 });
 
-// GET /api/companies/:symbol - detailed stock view
+// GET /api/companies/:symbol - detailed stock view with dynamic discovery
 router.get('/companies/:symbol', async (req, res) => {
   try {
     const symbolParam = req.params.symbol.toUpperCase();
     const symbol = symbolParam.includes('.') || symbolParam.startsWith('^') ? symbolParam : `${symbolParam}.NS`;
 
-    const company = await db.prepare(`SELECT * FROM companies WHERE symbol = ?`).get(symbol);
+    let company = await db.prepare(`SELECT * FROM companies WHERE symbol = ?`).get(symbol);
+
+    // On-Demand Stock Discovery if not in watch universe yet
+    if (!company && !symbol.startsWith('^')) {
+      company = await discoverAndRegisterStock(symbol);
+    }
+
     if (!company) {
-      return res.status(404).json({ success: false, error: 'Company not found in watch universe.' });
+      return res.status(404).json({ success: false, error: 'Company not found or invalid Indian stock symbol.' });
     }
 
     // Latest price
-    const latestPrice = await db.prepare(`
+    let latestPrice = await db.prepare(`
       SELECT * FROM daily_prices WHERE symbol = ? ORDER BY date DESC LIMIT 1
     `).get(symbol);
 
-    // Historical prices (last 30 trading days for chart)
+    if (!latestPrice && !symbol.startsWith('^')) {
+      latestPrice = await fetchStockData(symbol);
+    }
+
+    // Historical prices (last 60 trading days for chart)
     const history = (await db.prepare(`
       SELECT date, close, volume FROM historical_prices WHERE symbol = ? ORDER BY date ASC LIMIT 60
     `).all(symbol)) || [];

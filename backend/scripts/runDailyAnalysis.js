@@ -135,6 +135,9 @@ export async function runDailyAnalysisPipeline(forceRun = false) {
       healthResult.score,
       JSON.stringify(healthResult.breakdown)
     );
+
+    // Micro-delay between requests for rate-limit safety
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   // 5. Calculate Sector Performance

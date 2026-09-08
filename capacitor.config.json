@@ -1,0 +1,15 @@
+{
+  "appId": "com.stockai.daily",
+  "appName": "StockAI Daily",
+  "webDir": "dist",
+  "server": {
+    "url": "https://stockai-daily-final.onrender.com",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#0b0f19"
+    }
+  }
+}

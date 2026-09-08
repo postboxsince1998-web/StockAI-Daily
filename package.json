@@ -14,10 +14,12 @@
     "update-fundamentals": "node backend/scripts/updateFundamentals.js",
     "migrate-cloud": "node backend/database/migrateToCloud.js",
     "build:frontend": "vite build --outDir dist",
-
     "dev": "concurrently \"node backend/server.js\" \"vite\""
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -27,7 +29,6 @@
     "rss-parser": "^3.13.0",
     "yahoo-finance2": "^2.13.3"
   },
-
   "devDependencies": {
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
