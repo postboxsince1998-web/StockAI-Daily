@@ -64,7 +64,7 @@ export async function seedDatabase() {
 
     // Automobile & Auto Components
     { symbol: 'MARUTI.NS', name: 'Maruti Suzuki India', exchange: 'NSE', sector: 'Auto', industry: 'Automobiles', is_index: 0, description: 'India largest passenger car manufacturer.' },
-    { symbol: 'TATAMOTORS.NS', name: 'Tata Motors Ltd', exchange: 'NSE', sector: 'Auto', industry: 'Automobiles & EV', is_index: 0, description: 'Global automotive manufacturer of cars, commercial vehicles, and electric vehicles.' },
+    { symbol: 'TMCV.NS', name: 'Tata Motors Ltd', exchange: 'NSE', sector: 'Auto', industry: 'Automobiles & EV', is_index: 0, description: 'Global automotive manufacturer of cars, commercial vehicles, and electric vehicles.' },
     { symbol: 'M&M.NS', name: 'Mahindra & Mahindra', exchange: 'NSE', sector: 'Auto', industry: 'Automobiles & Tractors', is_index: 0, description: 'Leading SUV and tractor manufacturer in India.' },
     { symbol: 'BAJAJ-AUTO.NS', name: 'Bajaj Auto Ltd', exchange: 'NSE', sector: 'Auto', industry: 'Two & Three Wheelers', is_index: 0, description: 'Global manufacturer of two-wheelers and three-wheelers.' },
     { symbol: 'HEROMOTOCO.NS', name: 'Hero MotoCorp Ltd', exchange: 'NSE', sector: 'Auto', industry: 'Two Wheelers', is_index: 0, description: 'World largest manufacturer of motorcycles and scooters.' },
@@ -74,7 +74,7 @@ export async function seedDatabase() {
     { symbol: 'MOTHERSON.NS', name: 'Samvardhana Motherson', exchange: 'NSE', sector: 'Auto', industry: 'Auto Components', is_index: 0, description: 'Global automotive wiring harness and component manufacturer.' },
 
     // Consumer Goods & FMCG
-    { symbol: 'HUNVR.NS', name: 'Hindustan Unilever Ltd', exchange: 'NSE', sector: 'FMCG', industry: 'Consumer Goods', is_index: 0, description: 'India largest fast-moving consumer goods company.' },
+    { symbol: 'HINDUNILVR.NS', name: 'Hindustan Unilever Ltd', exchange: 'NSE', sector: 'FMCG', industry: 'Consumer Goods', is_index: 0, description: 'India largest fast-moving consumer goods company.' },
     { symbol: 'ITC.NS', name: 'ITC Ltd', exchange: 'NSE', sector: 'FMCG', industry: 'Consumer Goods & Agri', is_index: 0, description: 'Diversified conglomerate in FMCG, hotels, paperboards, and agribusiness.' },
     { symbol: 'NESTLEIND.NS', name: 'Nestle India Ltd', exchange: 'NSE', sector: 'FMCG', industry: 'Food & Nutrition', is_index: 0, description: 'Leading food and nutrition company in India.' },
     { symbol: 'BRITANNIA.NS', name: 'Britannia Industries', exchange: 'NSE', sector: 'FMCG', industry: 'Bakery & Foods', is_index: 0, description: 'Premier food company specializing in biscuits and bakery products.' },
@@ -103,7 +103,8 @@ export async function seedDatabase() {
     { symbol: 'MAXHEALTH.NS', name: 'Max Healthcare Institute', exchange: 'NSE', sector: 'Healthcare', industry: 'Hospitals', is_index: 0, description: 'Major healthcare provider operating premium network hospitals.' },
 
     // Consumer New-Age & Retail
-    { symbol: 'ZOMATO.NS', name: 'Zomato Ltd', exchange: 'NSE', sector: 'Consumer Services', industry: 'Food Delivery & Quick Commerce', is_index: 0, description: 'Leading food ordering, delivery, and quick commerce (Blinkit) platform.' },
+    { symbol: 'POLICYBZR.NS', name: 'PB Fintech (PolicyBazaar)', exchange: 'NSE', sector: 'Consumer Services', industry: 'Insurtech & Fintech', is_index: 0, description: 'Leading online insurance and financial marketplace platform.' },
+
     { symbol: 'PAYTM.NS', name: 'One97 Communications (Paytm)', exchange: 'NSE', sector: 'Financial Services', industry: 'Fintech', is_index: 0, description: 'Pioneer digital payments and financial technology platform.' },
     { symbol: 'DMART.NS', name: 'Avenue Supermarts (DMart)', exchange: 'NSE', sector: 'Retail', industry: 'Supermarkets', is_index: 0, description: 'India largest discount supermarket chain.' },
     { symbol: 'TITAN.NS', name: 'Titan Company Ltd', exchange: 'NSE', sector: 'Consumer Goods', industry: 'Jewelry & Watches', is_index: 0, description: 'Leading jewelry, watches, and eyewear brand under Tata Group.' },
